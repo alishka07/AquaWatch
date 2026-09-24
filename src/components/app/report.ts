@@ -4,24 +4,52 @@ import { assessQuality, pollutionLabel } from "./thresholds";
 export type ReportRange = { from: string; to: string };
 export type ReportFilters = { range: ReportRange; robotId: string };
 
+export function localDateInput(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+export function sampleDateRange(samples: Sample[]): ReportRange {
+  const times = samples.map((sample) => Date.parse(sample.date)).filter(Number.isFinite);
+  if (times.length === 0) {
+    const today = localDateInput(new Date());
+    return { from: today, to: today };
+  }
+  return {
+    from: localDateInput(new Date(Math.min(...times))),
+    to: localDateInput(new Date(Math.max(...times))),
+  };
+}
+
+export function isValidReportRange(range: ReportRange): boolean {
+  const validDate = (value: string) =>
+    /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    Number.isFinite(Date.parse(`${value}T00:00:00`)) &&
+    localDateInput(new Date(`${value}T00:00:00`)) === value;
+  return validDate(range.from) && validDate(range.to) && range.from <= range.to;
+}
+
 function inRange(iso: string, range: ReportRange): boolean {
   const t = new Date(iso).getTime();
   const from = new Date(range.from + "T00:00:00").getTime();
-  const to = new Date(range.to + "T23:59:59").getTime();
+  const to = new Date(range.to + "T23:59:59.999").getTime();
   return t >= from && t <= to;
 }
 
 export function filterSamples(samples: Sample[], filters: ReportFilters): Sample[] {
-  return samples.filter((s) => {
-    if (filters.robotId !== "all" && s.robotId !== filters.robotId) return false;
-    return inRange(s.date, filters.range);
-  });
+  if (!isValidReportRange(filters.range)) return [];
+  return samples
+    .filter((s) => {
+      if (filters.robotId !== "all" && s.robotId !== filters.robotId) return false;
+      return inRange(s.date, filters.range);
+    })
+    .sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
 }
 
 export function summarize(samples: Sample[], thresholds: Thresholds) {
   const n = samples.length || 1;
-  const avg = (k: keyof Pick<Sample, "ph" | "oxygen" | "turbidity" | "temperature" | "depth" | "pollution">) =>
-    samples.reduce((a, s) => a + (s[k] as number), 0) / n;
+  const avg = (
+    k: keyof Pick<Sample, "ph" | "oxygen" | "turbidity" | "temperature" | "depth" | "pollution">,
+  ) => samples.reduce((a, s) => a + (s[k] as number), 0) / n;
   const scores = samples.map((s) => assessQuality(s, thresholds).score);
   const tones = samples.map((s) => assessQuality(s, thresholds).tone);
   const avgScore = scores.reduce((a, b) => a + b, 0) / n;
@@ -45,8 +73,10 @@ export function summarize(samples: Sample[], thresholds: Thresholds) {
 }
 
 function csvEscape(v: unknown): string {
-  const s = String(v ?? "");
-  if (/[",;\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  let s = String(v ?? "");
+  // A device name or ID is text, even when it resembles an Excel formula.
+  if (typeof v === "string" && /^(?:\s*[=+\-@]|[\t\r])/.test(s)) s = "'" + s;
+  if (/[",;\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
 }
 
@@ -63,11 +93,16 @@ export function buildCSV(samples: Sample[], robots: Robot[], thresholds: Thresho
     "oxygen_mg_l",
     "turbidity_ntu",
     "temperature_c",
+    "tds_mg_l",
+    "conductivity_us_cm",
+    "microplastics_screening_particles_l",
     "depth_m",
     "pollution_idx",
     "quality_score",
     "quality_label",
     "pollution_label",
+    "data_source",
+    "coordinate_source",
   ];
   const lines: string[] = [header.join(";")];
   for (const s of samples) {
@@ -87,12 +122,19 @@ export function buildCSV(samples: Sample[], robots: Robot[], thresholds: Thresho
         s.oxygen,
         s.turbidity,
         s.temperature,
+        s.tds,
+        s.conductivity,
+        s.microplastics,
         s.depth,
         s.pollution,
         q.score,
         q.label,
         p.label,
-      ].map(csvEscape).join(";"),
+        "demo_simulation",
+        "demo_map_projection",
+      ]
+        .map(csvEscape)
+        .join(";"),
     );
   }
   return lines.join("\n");
@@ -110,7 +152,12 @@ export function downloadBlob(filename: string, mime: string, content: BlobPart) 
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function downloadCSV(samples: Sample[], robots: Robot[], thresholds: Thresholds, filters: ReportFilters) {
+export function downloadCSV(
+  samples: Sample[],
+  robots: Robot[],
+  thresholds: Thresholds,
+  filters: ReportFilters,
+) {
   const csv = "﻿" + buildCSV(samples, robots, thresholds); // BOM for Excel Cyrillic
   const fn = `usv_report_${filters.range.from}_${filters.range.to}.csv`;
   downloadBlob(fn, "text/csv;charset=utf-8", csv);
@@ -118,7 +165,10 @@ export function downloadCSV(samples: Sample[], robots: Robot[], thresholds: Thre
 }
 
 function htmlEscape(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+  return s.replace(
+    /[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!,
+  );
 }
 
 export function buildHtmlReport(
@@ -130,17 +180,19 @@ export function buildHtmlReport(
   const robotName = new Map(robots.map((r) => [r.id, r.name]));
   const sum = summarize(samples, thresholds);
   const generated = new Date().toLocaleString("ru-RU");
-  const robotFilterLabel = filters.robotId === "all"
-    ? "Все устройства"
-    : robotName.get(filters.robotId) ?? filters.robotId;
+  const robotFilterLabel =
+    filters.robotId === "all"
+      ? "Все устройства"
+      : (robotName.get(filters.robotId) ?? filters.robotId);
 
-  const rows = samples.map((s) => {
-    const q = assessQuality(s, thresholds);
-    const p = pollutionLabel(s.pollution, thresholds);
-    const lat = (43.88 + (s.position.y - 50) * 0.0015).toFixed(5);
-    const lon = (77.07 + (s.position.x - 50) * 0.002).toFixed(5);
-    const d = new Date(s.date);
-    return `<tr>
+  const rows = samples
+    .map((s) => {
+      const q = assessQuality(s, thresholds);
+      const p = pollutionLabel(s.pollution, thresholds);
+      const lat = (43.88 + (s.position.y - 50) * 0.0015).toFixed(5);
+      const lon = (77.07 + (s.position.x - 50) * 0.002).toFixed(5);
+      const d = new Date(s.date);
+      return `<tr>
       <td>${htmlEscape(s.id.toUpperCase())}</td>
       <td>${htmlEscape(robotName.get(s.robotId) ?? s.robotId)}</td>
       <td>${d.toLocaleString("ru-RU")}</td>
@@ -149,21 +201,25 @@ export function buildHtmlReport(
       <td class="num">${s.oxygen}</td>
       <td class="num">${s.turbidity}</td>
       <td class="num">${s.temperature}</td>
+      <td class="num">${s.tds}</td>
+      <td class="num">${s.conductivity}</td>
+      <td class="num">${s.microplastics}</td>
       <td class="num">${s.depth}</td>
       <td class="num">${s.pollution}</td>
       <td class="tone-${q.tone}">${q.score} · ${htmlEscape(q.label)}</td>
       <td class="tone-${p.tone}">${htmlEscape(p.label)}</td>
     </tr>`;
-  }).join("");
+    })
+    .join("");
 
   return `<!doctype html>
 <html lang="ru">
 <head>
 <meta charset="utf-8" />
-<title>Отчёт USV · ${filters.range.from} — ${filters.range.to}</title>
+<title>AquaWatch · демо-отчёт · ${htmlEscape(filters.range.from)} — ${htmlEscape(filters.range.to)}</title>
 <style>
   @page { size: A4 landscape; margin: 14mm; }
-  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #1a1a1a; font-size: 11px; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #263a35; font-size: 11px; }
   h1 { font-size: 18px; margin: 0 0 4px 0; }
   h2 { font-size: 14px; margin: 16px 0 6px 0; }
   .meta { color: #555; font-size: 11px; margin-bottom: 8px; }
@@ -183,15 +239,16 @@ export function buildHtmlReport(
   .tone-critical { color: #6b21a8; font-weight: 600; }
   .footer { margin-top: 12px; font-size: 9px; color: #777; }
   .print-btn { position: fixed; top: 12px; right: 12px; padding: 8px 14px; border-radius: 6px;
-              background: #2563eb; color: #fff; border: 0; font-weight: 600; cursor: pointer; }
+              background: #335e57; color: #fff; border: 0; font-weight: 600; cursor: pointer; }
   @media print { .print-btn { display: none; } }
 </style>
 </head>
 <body>
   <button class="print-btn" onclick="window.print()">Печать / Сохранить PDF</button>
-  <h1>Отчёт мониторинга качества воды · Капшагайское водохранилище</h1>
+  <h1>AquaWatch · демонстрационный отчёт мониторинга воды</h1>
+  <p class="meta">Данные симуляции. Координаты рассчитаны по демонстрационной карте. Скрининг микрочастиц не является лабораторным анализом. Оценка качества рассчитана по настройкам приложения.</p>
   <div class="meta">
-    Период: <b>${filters.range.from}</b> — <b>${filters.range.to}</b> ·
+    Период: <b>${htmlEscape(filters.range.from)}</b> — <b>${htmlEscape(filters.range.to)}</b> ·
     Устройство: <b>${htmlEscape(robotFilterLabel)}</b> ·
     Сформировано: <b>${generated}</b> ·
     Записей: <b>${sum.count}</b>
@@ -199,10 +256,10 @@ export function buildHtmlReport(
 
   <h2>Сводка</h2>
   <div class="grid">
-    <div class="stat"><div class="l">Средний pH</div><div class="v">${sum.ph}</div><div class="s">норма ${thresholds.ph.min}–${thresholds.ph.max}</div></div>
-    <div class="stat"><div class="l">Средний O₂</div><div class="v">${sum.oxygen} <span style="font-size:11px">мг/л</span></div><div class="s">норма ≥ ${thresholds.oxygen.warn}</div></div>
-    <div class="stat"><div class="l">Средняя мутность</div><div class="v">${sum.turbidity} <span style="font-size:11px">NTU</span></div><div class="s">норма ≤ ${thresholds.turbidity.warn}</div></div>
-    <div class="stat"><div class="l">Средняя температура</div><div class="v">${sum.temperature} °C</div><div class="s">норма ≤ ${thresholds.temperature.warn}</div></div>
+    <div class="stat"><div class="l">Средний pH</div><div class="v">${sum.ph}</div><div class="s">порог ${thresholds.ph.min}–${thresholds.ph.max}</div></div>
+    <div class="stat"><div class="l">Средний O₂</div><div class="v">${sum.oxygen} <span style="font-size:11px">мг/л</span></div><div class="s">порог ≥ ${thresholds.oxygen.warn}</div></div>
+    <div class="stat"><div class="l">Средняя мутность</div><div class="v">${sum.turbidity} <span style="font-size:11px">NTU</span></div><div class="s">порог ≤ ${thresholds.turbidity.warn}</div></div>
+    <div class="stat"><div class="l">Средняя температура</div><div class="v">${sum.temperature} °C</div><div class="s">порог ≤ ${thresholds.temperature.warn}</div></div>
     <div class="stat"><div class="l">Средняя глубина</div><div class="v">${sum.depth} м</div></div>
     <div class="stat"><div class="l">Средний индекс загрязнения</div><div class="v">${sum.pollution}/100</div></div>
     <div class="stat"><div class="l">Средний индекс качества</div><div class="v">${sum.avgScore}/100</div></div>
@@ -221,25 +278,31 @@ export function buildHtmlReport(
   <table>
     <thead><tr>
       <th>ID</th><th>Устройство</th><th>Дата/время</th><th>Координаты</th>
-      <th>pH</th><th>O₂ мг/л</th><th>Мутн. NTU</th><th>T °C</th><th>Глубина м</th><th>Загр.</th>
+      <th>pH</th><th>O₂ мг/л</th><th>Мутн. NTU</th><th>T °C</th>
+      <th>TDS мг/л</th><th>EC мкСм/см</th><th>МП част/л</th><th>Глубина м</th><th>Загр.</th>
       <th>Качество</th><th>Уровень загр.</th>
     </tr></thead>
-    <tbody>${rows || `<tr><td colspan="12" style="text-align:center;color:#888;padding:20px">Нет данных в выбранном периоде</td></tr>`}</tbody>
+    <tbody>${rows || `<tr><td colspan="15" style="text-align:center;color:#888;padding:20px">Нет данных в выбранном периоде</td></tr>`}</tbody>
   </table>
 
   <div class="footer">
-    USV Guardian Hub · Капшагайское водохранилище · отчёт сформирован автоматически.
-    Пороги качества: pH ${thresholds.ph.warnMin}–${thresholds.ph.warnMax} (норма ${thresholds.ph.min}–${thresholds.ph.max}),
+    AquaWatch · демонстрационный отчёт, сформирован автоматически.
+    Настроенные пороги: pH ${thresholds.ph.warnMin}–${thresholds.ph.warnMax} (диапазон ${thresholds.ph.min}–${thresholds.ph.max}),
     O₂ ≥ ${thresholds.oxygen.warn} мг/л (критично < ${thresholds.oxygen.critical}),
     мутность ≤ ${thresholds.turbidity.warn} NTU (критично > ${thresholds.turbidity.critical}),
     T ≤ ${thresholds.temperature.warn} °C,
-    индекс загрязнения: норма < ${thresholds.pollution.ok}, умер. < ${thresholds.pollution.warn}, выс. < ${thresholds.pollution.danger}.
+    индекс загрязнения: низкий < ${thresholds.pollution.ok}, умер. < ${thresholds.pollution.warn}, выс. < ${thresholds.pollution.danger}.
   </div>
 </body>
 </html>`;
 }
 
-export function downloadPDF(samples: Sample[], robots: Robot[], thresholds: Thresholds, filters: ReportFilters) {
+export function downloadPDF(
+  samples: Sample[],
+  robots: Robot[],
+  thresholds: Thresholds,
+  filters: ReportFilters,
+) {
   const html = buildHtmlReport(samples, robots, thresholds, filters);
   const win = window.open("", "_blank");
   if (!win) {
@@ -253,7 +316,15 @@ export function downloadPDF(samples: Sample[], robots: Robot[], thresholds: Thre
   win.document.close();
   // give the browser a moment to render before triggering print
   setTimeout(() => {
-    try { win.focus(); win.print(); } catch { /* ignore */ }
+    try {
+      win.focus();
+      win.print();
+    } catch {
+      /* ignore */
+    }
   }, 350);
-  return { mode: "print" as const, filename: `usv_report_${filters.range.from}_${filters.range.to}.pdf` };
+  return {
+    mode: "print" as const,
+    filename: `usv_report_${filters.range.from}_${filters.range.to}.pdf`,
+  };
 }

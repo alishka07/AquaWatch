@@ -4,9 +4,9 @@ import type { Robot, Sample } from "./types";
 // Waypoints are picked inside the water polygon.
 
 export const ROBOT_COLORS = {
-  cyan: "oklch(0.82 0.15 200)",
-  lime: "oklch(0.78 0.2 145)",
-  amber: "oklch(0.82 0.17 75)",
+  cyan: "#335e57",
+  lime: "#697b55",
+  amber: "#a77838",
 } as const;
 
 export const initialRobots: Robot[] = [
@@ -15,7 +15,7 @@ export const initialRobots: Robot[] = [
     name: "AquaBot-01",
     model: "AB-X200",
     serial: "SN-0001-AQ",
-    status: "online",
+    status: "mission",
     battery: 87,
     signal: 92,
     position: { x: 32, y: 56 },
@@ -93,7 +93,7 @@ const rand = (i: number) => Math.abs(seed(i) - Math.floor(seed(i)));
 // We parametrize a centerline and add a narrow lateral jitter so all points stay inside the water.
 function pointOnLake(t: number, lateral: number) {
   // centerline (matches the path in MapView roughly)
-  const cx = 14 + t * 70;                  // 14 → 84
+  const cx = 14 + t * 70; // 14 → 84
   const cy = 64 - t * 26 - Math.sin(t * Math.PI) * 2; // 64 → 38, slight bow
   // perpendicular to centerline (approx): direction (70, -26) → normal (26, 70) normalized
   const nLen = Math.hypot(26, 70);
@@ -110,6 +110,7 @@ export const initialSamples: Sample[] = Array.from({ length: 32 }, (_, i) => {
   const robot = initialRobots[robotIdx];
   const t = rand(i + 1);
   const lateral = (rand(i + 7) - 0.5) * 2; // -1..1
+  const tds = Math.round(180 + rand(i + 31) * 400);
   return {
     id: `s${i + 1}`,
     robotId: robot.id,
@@ -119,6 +120,9 @@ export const initialSamples: Sample[] = Array.from({ length: 32 }, (_, i) => {
     oxygen: +(5 + rand(i + 13) * 6).toFixed(2),
     turbidity: +(1 + rand(i + 17) * 9).toFixed(2),
     temperature: +(12 + rand(i + 19) * 14).toFixed(1),
+    tds,
+    conductivity: Math.round(tds * 1.55),
+    microplastics: Math.round(rand(i + 37) * 18),
     depth: +(1.2 + rand(i + 23) * 18).toFixed(1),
     pollution: +(8 + rand(i + 29) * 70).toFixed(0),
   };

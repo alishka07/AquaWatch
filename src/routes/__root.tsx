@@ -33,7 +33,7 @@ function NotFoundComponent() {
   );
 }
 
-function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
+function ErrorComponent({ error, reset }: { error: unknown; reset: () => void }) {
   console.error(error);
   const router = useRouter();
 
@@ -73,20 +73,27 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "AquaWatch System is a web application for monitoring water quality using USVs." },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "AquaWatch System is a web application for monitoring water quality using USVs." },
+      { title: "AquaWatch · SuBulaq" },
+      {
+        name: "description",
+        content: "AquaWatch System is a web application for monitoring water quality using USVs.",
+      },
+      { name: "author", content: "Bulaq Robotics" },
+      { property: "og:title", content: "AquaWatch · SuBulaq" },
+      {
+        property: "og:description",
+        content: "AquaWatch System is a web application for monitoring water quality using USVs.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
-      { name: "twitter:site", content: "@Lovable" },
-      { name: "twitter:title", content: "Lovable App" },
-      { name: "twitter:description", content: "AquaWatch System is a web application for monitoring water quality using USVs." },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/f2a77e84-929f-48fa-9030-f8f5d3f82935/id-preview-235d8058--563c1bcb-0e5a-4020-b45a-93c278b44ab2.lovable.app-1779027053590.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/f2a77e84-929f-48fa-9030-f8f5d3f82935/id-preview-235d8058--563c1bcb-0e5a-4020-b45a-93c278b44ab2.lovable.app-1779027053590.png" },
+      { name: "twitter:title", content: "AquaWatch · SuBulaq" },
+      {
+        name: "twitter:description",
+        content: "AquaWatch System is a web application for monitoring water quality using USVs.",
+      },
     ],
     links: [
+      { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
       {
         rel: "stylesheet",
         href: appCss,
@@ -101,7 +108,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="ru">
       <head>
         <HeadContent />
       </head>
@@ -119,7 +126,7 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <Outlet />
-      <Toaster position="top-right" theme="dark" richColors />
+      <Toaster position="top-right" theme="light" richColors />
     </QueryClientProvider>
   );
 }

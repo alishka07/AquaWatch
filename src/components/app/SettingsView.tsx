@@ -1,201 +1,336 @@
-import { useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Droplets, Wind, Eye, Thermometer, Biohazard, RotateCcw, Save, Sliders, CheckCircle2, AlertTriangle } from "lucide-react";
+import {
+  Droplets,
+  Wind,
+  Eye,
+  Thermometer,
+  Biohazard,
+  RotateCcw,
+  Save,
+  CheckCircle2,
+  AlertTriangle,
+} from "lucide-react";
 import { toast } from "sonner";
 import type { Sample, Thresholds } from "./types";
 import { DEFAULT_THRESHOLDS } from "./types";
-import { assessQuality } from "./thresholds";
+import { assessQuality, thresholdErrors, THRESHOLD_PRESETS } from "./thresholds";
 
 type Props = {
   thresholds: Thresholds;
-  onChange: (t: Thresholds) => void;
-  onReset: () => void;
+  onChange: (thresholds: Thresholds) => boolean | void;
+  onReset: () => boolean | void;
   samples: Sample[];
 };
 
+type Field = { key: string; label: string; hint?: string };
+const cards: {
+  group: keyof Thresholds;
+  title: string;
+  subtitle: string;
+  icon: typeof Droplets;
+  min: number;
+  max?: number;
+  step: number;
+  fields: Field[];
+}[] = [
+  {
+    group: "ph",
+    title: "Уровень pH",
+    subtitle: "Кислотность воды",
+    icon: Droplets,
+    min: 0,
+    max: 14,
+    step: 0.1,
+    fields: [
+      { key: "min", label: "Нижняя граница", hint: "Ниже — критическое отклонение" },
+      { key: "warnMin", label: "Нижний порог", hint: "Ниже — предупреждение" },
+      { key: "warnMax", label: "Верхний порог", hint: "Выше — предупреждение" },
+      { key: "max", label: "Верхняя граница", hint: "Выше — критическое отклонение" },
+    ],
+  },
+  {
+    group: "oxygen",
+    title: "Растворённый кислород",
+    subtitle: "мг/л",
+    icon: Wind,
+    min: 0,
+    step: 0.1,
+    fields: [
+      { key: "warn", label: "Предупреждение ниже" },
+      { key: "critical", label: "Критический порог" },
+    ],
+  },
+  {
+    group: "turbidity",
+    title: "Мутность",
+    subtitle: "NTU",
+    icon: Eye,
+    min: 0,
+    step: 0.1,
+    fields: [
+      { key: "warn", label: "Предупреждение выше" },
+      { key: "critical", label: "Критический порог" },
+    ],
+  },
+  {
+    group: "temperature",
+    title: "Температура",
+    subtitle: "°C",
+    icon: Thermometer,
+    min: -10,
+    max: 80,
+    step: 0.5,
+    fields: [{ key: "warn", label: "Предупреждение выше" }],
+  },
+  {
+    group: "pollution",
+    title: "Индекс загрязнения",
+    subtitle: "Учебная шкала 0–100",
+    icon: Biohazard,
+    min: 0,
+    max: 100,
+    step: 1,
+    fields: [
+      { key: "ok", label: "Низкий до" },
+      { key: "warn", label: "Умеренный до" },
+      { key: "danger", label: "Высокий до", hint: "Выше — критический" },
+    ],
+  },
+];
+
 export function SettingsView({ thresholds, onChange, onReset, samples }: Props) {
   const [draft, setDraft] = useState<Thresholds>(thresholds);
-
-  const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(thresholds), [draft, thresholds]);
-
+  useEffect(() => setDraft(thresholds), [thresholds]);
+  const errors = useMemo(() => thresholdErrors(draft), [draft]);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(thresholds);
+  const preset = THRESHOLD_PRESETS.find((p) => JSON.stringify(p.values) === JSON.stringify(draft));
   const liveStats = useMemo(() => {
-    const n = samples.length || 1;
-    const tones = samples.map((s) => assessQuality(s, draft).tone);
-    const avg = samples.reduce((a, s) => a + assessQuality(s, draft).score, 0) / n;
+    if (thresholdErrors(draft).length) return null;
+    const quality = samples.map((sample) => assessQuality(sample, draft));
     return {
-      avg: +avg.toFixed(1),
-      success: tones.filter((t) => t === "success").length,
-      warning: tones.filter((t) => t === "warning").length,
-      danger: tones.filter((t) => t === "danger").length,
-      critical: tones.filter((t) => t === "critical").length,
+      avg: quality.length
+        ? Math.round(quality.reduce((sum, item) => sum + item.score, 0) / quality.length)
+        : null,
+      counts: ["success", "warning", "danger", "critical"].map(
+        (tone) => quality.filter((item) => item.tone === tone).length,
+      ),
     };
   }, [draft, samples]);
 
   const save = () => {
-    onChange(draft);
-    toast.success("Пороги сохранены", { description: "Индикаторы качества и отчёты пересчитаны." });
+    if (errors.length) return;
+    const stored = onChange(draft);
+    if (stored === false)
+      toast.warning("Пороги применены на эту сессию", {
+        description:
+          "Браузер не разрешил сохранить настройки. После перезагрузки проверьте значения.",
+      });
+    else
+      toast.success("Пороги сохранены", {
+        description: "Индикаторы качества и отчёты пересчитаны.",
+      });
   };
-
   const reset = () => {
     setDraft(DEFAULT_THRESHOLDS);
-    onReset();
-    toast.info("Значения сброшены к стандартным");
+    const stored = onReset();
+    if (stored === false) toast.warning("Общий учебный профиль применён на эту сессию");
+    else toast.info("Применён общий учебный профиль");
   };
 
-  const setPh = (k: keyof Thresholds["ph"], v: number) => setDraft({ ...draft, ph: { ...draft.ph, [k]: v } });
-  const setOx = (k: keyof Thresholds["oxygen"], v: number) => setDraft({ ...draft, oxygen: { ...draft.oxygen, [k]: v } });
-  const setTu = (k: keyof Thresholds["turbidity"], v: number) => setDraft({ ...draft, turbidity: { ...draft.turbidity, [k]: v } });
-  const setTe = (k: keyof Thresholds["temperature"], v: number) => setDraft({ ...draft, temperature: { ...draft.temperature, [k]: v } });
-  const setPo = (k: keyof Thresholds["pollution"], v: number) => setDraft({ ...draft, pollution: { ...draft.pollution, [k]: v } });
-
   return (
-    <div className="space-y-4">
-      <Card className="bg-card border-border p-5 flex flex-wrap items-center gap-4">
-        <div className="flex items-center gap-3">
-          <div className="size-10 rounded-lg bg-primary/15 text-primary flex items-center justify-center">
-            <Sliders className="size-5" />
-          </div>
+    <div className="space-y-5">
+      <section className="workspace-section">
+        <div className="section-heading">
           <div>
-            <h2 className="font-semibold text-lg leading-tight">Пороги качества воды</h2>
-            <p className="text-xs text-muted-foreground">Управляйте границами нормы для всех метрик. Изменения сразу пересчитывают индикатор качества на карте, в карточках проб и в отчётах.</p>
+            <h2>Пороги качества воды</h2>
+            <p>
+              Выберите учебный профиль или задайте свои значения. Сохранение обновит индикаторы и
+              отчёты.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={reset}>
+              <RotateCcw className="size-4" />
+              Сбросить
+            </Button>
+            <Button onClick={save} disabled={!dirty || errors.length > 0}>
+              <Save className="size-4" />
+              {dirty ? "Сохранить изменения" : "Сохранено"}
+            </Button>
           </div>
         </div>
-        <div className="ml-auto flex items-center gap-2">
-          <Button variant="outline" onClick={reset} className="gap-2"><RotateCcw className="size-4" /> Сбросить</Button>
-          <Button onClick={save} disabled={!dirty} className="gap-2 bg-primary text-primary-foreground hover:bg-primary/90">
-            <Save className="size-4" /> {dirty ? "Сохранить изменения" : "Сохранено"}
-          </Button>
+        <label className="grid grid-cols-[minmax(0,1fr)] gap-2 text-xs max-w-lg w-full min-w-0">
+          Профиль порогов
+          <select
+            className="app-select w-full min-w-0"
+            value={preset?.id ?? "custom"}
+            onChange={(event) => {
+              const selected = THRESHOLD_PRESETS.find((p) => p.id === event.target.value);
+              if (selected) setDraft(structuredClone(selected.values));
+            }}
+          >
+            <option value="custom" disabled>
+              Свои значения
+            </option>
+            {THRESHOLD_PRESETS.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="text-xs text-muted-foreground leading-relaxed mt-4">
+          Профили нужны для демонстрации индикаторов. Они не являются нормативами, а учебный индекс
+          не заменяет лабораторный анализ.
+        </p>
+      </section>
+      {errors.length > 0 && (
+        <div
+          role="alert"
+          className="rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
+        >
+          <p className="flex items-center gap-2 font-medium">
+            <AlertTriangle className="size-4" />
+            Проверьте значения перед сохранением
+          </p>
+          <ul className="list-disc pl-6 mt-2 space-y-1">
+            {errors.map((error) => (
+              <li key={error}>{error}</li>
+            ))}
+          </ul>
         </div>
-      </Card>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <ThresholdCard icon={Droplets} title="Уровень pH" subtitle="Кислотность воды" tone="text-cyan-accent">
-          <NumRow label="Нижняя норма" value={draft.ph.warnMin} step={0.1} onChange={(v) => setPh("warnMin", v)} hint="ниже — предупреждение" />
-          <NumRow label="Верхняя норма" value={draft.ph.warnMax} step={0.1} onChange={(v) => setPh("warnMax", v)} hint="выше — предупреждение" />
-          <NumRow label="Жёсткая нижняя" value={draft.ph.min} step={0.1} onChange={(v) => setPh("min", v)} hint="ниже — вне нормы" />
-          <NumRow label="Жёсткая верхняя" value={draft.ph.max} step={0.1} onChange={(v) => setPh("max", v)} hint="выше — вне нормы" />
-        </ThresholdCard>
-
-        <ThresholdCard icon={Wind} title="Растворённый кислород" subtitle="мг/л" tone="text-success">
-          <NumRow label="Норма от" value={draft.oxygen.warn} step={0.1} onChange={(v) => setOx("warn", v)} hint="ниже — понижен" />
-          <NumRow label="Критично ниже" value={draft.oxygen.critical} step={0.1} onChange={(v) => setOx("critical", v)} hint="ниже — критично" />
-        </ThresholdCard>
-
-        <ThresholdCard icon={Eye} title="Мутность" subtitle="NTU" tone="text-warning">
-          <NumRow label="Норма до" value={draft.turbidity.warn} step={0.1} onChange={(v) => setTu("warn", v)} hint="выше — повышена" />
-          <NumRow label="Критично выше" value={draft.turbidity.critical} step={0.1} onChange={(v) => setTu("critical", v)} hint="выше — критично" />
-        </ThresholdCard>
-
-        <ThresholdCard icon={Thermometer} title="Температура" subtitle="°C" tone="text-primary">
-          <NumRow label="Норма до" value={draft.temperature.warn} step={0.5} onChange={(v) => setTe("warn", v)} hint="выше — высокая" />
-        </ThresholdCard>
-
-        <ThresholdCard icon={Biohazard} title="Индекс загрязнения" subtitle="0–100" tone="text-destructive">
-          <NumRow label="Низкий (норма) до" value={draft.pollution.ok} step={1} onChange={(v) => setPo("ok", v)} hint="" />
-          <NumRow label="Умеренный до" value={draft.pollution.warn} step={1} onChange={(v) => setPo("warn", v)} hint="" />
-          <NumRow label="Высокий до" value={draft.pollution.danger} step={1} onChange={(v) => setPo("danger", v)} hint="выше — критический" />
-        </ThresholdCard>
-
-        <Card className="bg-card border-border p-5 lg:col-span-1">
-          <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold flex items-center gap-1.5">
-            <CheckCircle2 className="size-3.5" /> Предпросмотр пересчёта
-          </div>
-          <h3 className="text-base font-semibold mt-1">Влияние на {samples.length} проб</h3>
-          <div className="mt-3 space-y-2">
-            <div className="flex items-baseline justify-between">
-              <span className="text-xs text-muted-foreground">Средний индекс качества</span>
-              <span className="text-2xl font-bold tabular-nums">{liveStats.avg}<span className="text-sm text-muted-foreground">/100</span></span>
-            </div>
-            <div className="h-2 rounded-full bg-background/60 overflow-hidden">
-              <div className="h-full bg-primary transition-all" style={{ width: `${liveStats.avg}%` }} />
-            </div>
-            <div className="grid grid-cols-4 gap-2 pt-2 text-center text-xs">
-              <ToneCell n={liveStats.success} label="Норма" tone="bg-success/15 text-success border-success/30" />
-              <ToneCell n={liveStats.warning} label="Удовл." tone="bg-warning/15 text-warning border-warning/30" />
-              <ToneCell n={liveStats.danger} label="Плохо" tone="bg-destructive/15 text-destructive border-destructive/30" />
-              <ToneCell n={liveStats.critical} label="Крит." tone="bg-[oklch(0.55_0.22_300)]/15 text-[oklch(0.78_0.18_300)] border-[oklch(0.55_0.22_300)]/40" />
-            </div>
-            {dirty && (
-              <div className="mt-3 flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 p-2.5 text-xs text-warning">
-                <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
-                <span>Есть несохранённые изменения — нажмите «Сохранить», чтобы применить пороги к карте и отчётам.</span>
+      )}
+      <div className="grid grid-cols-1 xl:grid-cols-3 md:grid-cols-2 gap-4">
+        {cards.map((card) => (
+          <Card key={card.group} className="bg-card border-border p-5">
+            <div className="flex gap-3 items-center mb-4">
+              <card.icon className="size-5 text-primary" />
+              <div>
+                <h3 className="font-medium text-sm">{card.title}</h3>
+                <p className="text-xs text-muted-foreground mt-1">{card.subtitle}</p>
               </div>
-            )}
+            </div>
+            <div className="space-y-4">
+              {card.fields.map((field) => (
+                <NumRow
+                  key={field.key}
+                  label={field.label}
+                  accessibleLabel={`${card.title}: ${field.label}`}
+                  hint={field.hint}
+                  value={(draft[card.group] as Record<string, number>)[field.key]}
+                  min={card.min}
+                  max={card.max}
+                  step={card.step}
+                  onChange={(value) =>
+                    setDraft((previous) => ({
+                      ...previous,
+                      [card.group]: { ...previous[card.group], [field.key]: value },
+                    }))
+                  }
+                />
+              ))}
+            </div>
+          </Card>
+        ))}
+        <Card className="bg-card border-border p-5">
+          <div className="flex items-center gap-2 text-primary mb-4">
+            <CheckCircle2 className="size-5" />
+            <h3 className="font-medium text-sm">Предпросмотр пересчёта</h3>
           </div>
+          <p className="text-xs text-muted-foreground">
+            Влияние на {samples.length} демонстрационных проб.
+          </p>
+          {liveStats ? (
+            <>
+              <div className="flex justify-between items-end mt-6 mb-4">
+                <span className="text-xs text-muted-foreground">Средний учебный индекс</span>
+                <strong className="font-normal text-3xl tabular-nums">
+                  {liveStats.avg ?? "—"}
+                  <small className="text-sm text-muted-foreground">/100</small>
+                </strong>
+              </div>
+              <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                <div className="h-full bg-primary" style={{ width: `${liveStats.avg ?? 0}%` }} />
+              </div>
+              <div className="grid grid-cols-4 gap-2 mt-5">
+                {["В пределах", "Внимание", "Отклонение", "Критично"].map((label, i) => (
+                  <div className="text-center" key={label}>
+                    <strong className="block text-lg font-medium tabular-nums">
+                      {liveStats.counts[i]}
+                    </strong>
+                    <span className="text-[9px] text-muted-foreground">{label}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-destructive mt-5">
+              Предпросмотр появится после исправления порогов.
+            </p>
+          )}
+          {dirty && (
+            <p className="text-xs text-warning leading-relaxed border-t pt-4 mt-5">
+              Есть несохранённые изменения. Примените их кнопкой «Сохранить изменения».
+            </p>
+          )}
         </Card>
       </div>
     </div>
   );
 }
 
-function ThresholdCard({
-  icon: Icon,
-  title,
-  subtitle,
-  tone,
-  children,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  title: string;
-  subtitle: string;
-  tone: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Card className="bg-card border-border p-5">
-      <div className="flex items-center gap-2 mb-3">
-        <Icon className={`size-5 ${tone}`} />
-        <div>
-          <h3 className="font-semibold leading-tight">{title}</h3>
-          <div className="text-xs text-muted-foreground">{subtitle}</div>
-        </div>
-      </div>
-      <div className="space-y-2.5">{children}</div>
-    </Card>
-  );
-}
-
 function NumRow({
   label,
+  accessibleLabel,
   value,
   step,
+  min,
+  max,
   onChange,
   hint,
 }: {
   label: string;
+  accessibleLabel: string;
   value: number;
   step: number;
-  onChange: (v: number) => void;
+  min: number;
+  max?: number;
+  onChange: (value: number) => void;
   hint?: string;
 }) {
+  const id = useId();
+  const invalid = !Number.isFinite(value) || value < min || (max !== undefined && value > max);
   return (
-    <div className="grid grid-cols-[1fr_120px] items-center gap-3">
+    <div className="grid grid-cols-[1fr_90px] items-center gap-3">
       <div>
-        <Label className="text-xs">{label}</Label>
-        {hint && <div className="text-[10px] text-muted-foreground">{hint}</div>}
+        <Label htmlFor={id} className="text-xs leading-relaxed">
+          {label}
+        </Label>
+        {hint && (
+          <p id={`${id}-hint`} className="text-[10px] text-muted-foreground mt-1">
+            {hint}
+          </p>
+        )}
       </div>
       <Input
+        id={id}
+        aria-label={accessibleLabel}
+        aria-invalid={invalid}
+        aria-describedby={hint ? `${id}-hint` : undefined}
         type="number"
+        inputMode="decimal"
         step={step}
-        value={value}
-        onChange={(e) => {
-          const v = parseFloat(e.target.value);
-          if (!Number.isNaN(v)) onChange(v);
-        }}
-        className="h-9 font-mono text-right"
+        min={min}
+        max={max}
+        required
+        value={Number.isFinite(value) ? value : ""}
+        onChange={(event) => onChange(event.target.valueAsNumber)}
+        className="h-9 font-mono text-right text-xs"
       />
-    </div>
-  );
-}
-
-function ToneCell({ n, label, tone }: { n: number; label: string; tone: string }) {
-  return (
-    <div className={`rounded-md border p-1.5 ${tone}`}>
-      <div className="text-lg font-bold tabular-nums leading-tight">{n}</div>
-      <div className="text-[10px] uppercase tracking-wider">{label}</div>
     </div>
   );
 }

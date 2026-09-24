@@ -15,16 +15,27 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { X, Battery, Signal, MapPin, OctagonAlert, Home, Bot, Gauge, Navigation2, Target, Pencil, Trash2, Rocket, Loader2 } from "lucide-react";
+import {
+  X,
+  Battery,
+  Signal,
+  MapPin,
+  OctagonAlert,
+  Home,
+  Bot,
+  Gauge,
+  Navigation2,
+  Target,
+  Pencil,
+  Trash2,
+  Play,
+  Route,
+} from "lucide-react";
 import { toast } from "sonner";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ResponsiveContainer, AreaChart, Area } from "recharts";
 import type { Robot, EventType, EventLogEntry } from "./types";
-
-const fmtTs = () => {
-  const d = new Date();
-  return d.toTimeString().slice(0, 8);
-};
+import { BASE_POSITION, DEMO_ROUTE } from "./simulation";
 
 const toGps = (w: { x: number; y: number }) => ({
   lat: +(43.88 + (w.y - 50) * 0.0015).toFixed(5),
@@ -42,248 +53,389 @@ type Props = {
   logEvent?: (robot: Robot, type: EventType, extra?: string) => EventLogEntry;
 };
 
-export function RobotPanel({ robot, onClose, onUpdate, editMode, setEditMode, draftWaypoints, setDraftWaypoints, logEvent }: Props) {
-  const [launching, setLaunching] = useState(false);
+export function RobotPanel({
+  robot,
+  onClose,
+  onUpdate,
+  editMode,
+  setEditMode,
+  draftWaypoints,
+  setDraftWaypoints,
+  logEvent,
+}: Props) {
   const [estopOpen, setEstopOpen] = useState(false);
   const [rtlOpen, setRtlOpen] = useState(false);
+  const [sampleCount, setSampleCount] = useState(String(robot.samplesPerTrip));
+  useEffect(() => {
+    setSampleCount(String(robot.samplesPerTrip));
+  }, [robot.id, robot.samplesPerTrip]);
+  const parsedCount = Number(sampleCount);
+  const validCount =
+    sampleCount.trim() !== "" &&
+    Number.isInteger(parsedCount) &&
+    parsedCount >= 1 &&
+    parsedCount <= 100;
+  const unavailable = robot.status === "offline" || robot.battery <= 0;
+  const startReason =
+    robot.battery <= 0
+      ? "Для запуска нужен заряд батареи."
+      : robot.status === "offline"
+        ? "Робот не в сети. Выберите доступный аппарат."
+        : !validCount
+          ? "Укажите целое число проб от 1 до 100."
+          : draftWaypoints.length < 2
+            ? "Добавьте минимум две точки или используйте готовый маршрут."
+            : "";
 
   const emergency = () => {
-    const updated: Robot = { ...robot, status: "offline", signal: 0, speed: 0, lastSeen: "только что" };
+    const updated: Robot = {
+      ...robot,
+      status: "offline",
+      signal: 0,
+      speed: 0,
+      lastSeen: "только что",
+    };
     onUpdate(updated);
-    logEvent?.(updated, "estop", "оператор · ручное подтверждение");
-    toast.error("Аварийная остановка выполнена", {
-      description: `[${fmtTs()}] CMD: ESTOP → ${robot.name} · ACK · запись в журнал`,
+    logEvent?.(updated, "estop", "локальная демосимуляция · остановка оператором");
+    toast.success("Демонстрационный робот остановлен", {
+      description: `${robot.name}: движение в симуляции прекращено.`,
     });
     setEstopOpen(false);
   };
   const rtl = () => {
-    const updated: Robot = { ...robot, status: "rtl" };
+    if (unavailable) return;
+    const updated: Robot = {
+      ...robot,
+      status: "rtl",
+      waypoints: [{ ...BASE_POSITION }],
+      waypointIdx: 0,
+      speed: 1.8,
+    };
     onUpdate(updated);
-    logEvent?.(updated, "rtl", "ручная команда оператора");
-    toast.warning("Возврат на базу инициирован", {
-      description: `[${fmtTs()}] CMD: RTL → ${robot.name} · следует на базу · запись в журнал`,
+    toast.success("Возврат на базу запущен", {
+      description: `${robot.name} движется к базе на схеме.`,
     });
     setRtlOpen(false);
+    setEditMode(false);
   };
-
-  const clearDraft = () => setDraftWaypoints([]);
-  const removeWp = (i: number) => setDraftWaypoints(draftWaypoints.filter((_, idx) => idx !== i));
-
-  const launchRoute = async () => {
-    if (draftWaypoints.length < 2) {
-      toast.error("Маршрут слишком короткий", { description: "Добавьте минимум 2 точки на карте" });
-      return;
-    }
-    setLaunching(true);
-    toast.info("Синхронизация маршрута с USV...", { description: `[${fmtTs()}] UPLOAD → ${robot.name} · ${draftWaypoints.length} WP` });
-    await new Promise((r) => setTimeout(r, 1400));
+  const launchRoute = () => {
+    if (startReason) return;
     onUpdate({
       ...robot,
       status: "mission",
-      waypoints: draftWaypoints,
+      waypoints: draftWaypoints.map((point) => ({ ...point })),
       waypointIdx: 0,
-      position: draftWaypoints[0],
       trail: [],
+      speed: 1.8,
+      samplesPerTrip: parsedCount,
     });
-    toast.success("Маршрут запущен", { description: `${robot.name} выполняет миссию · ${draftWaypoints.length} точек` });
-    setLaunching(false);
+    toast.success("Демомаршрут запущен", {
+      description: `${robot.name} последовательно пройдёт ${draftWaypoints.length} точки в локальной симуляции.`,
+    });
     setEditMode(false);
   };
-
+  const preset = () => {
+    setDraftWaypoints(DEMO_ROUTE.map((point) => ({ ...point })));
+    setEditMode(true);
+  };
   const sparkData = robot.batteryHistory.map((v, i) => ({ i, v }));
-  const lat = toGps(robot.position).lat.toFixed(5);
-  const lon = toGps(robot.position).lon.toFixed(5);
+  const gps = toGps(robot.position);
+  const statusLabel =
+    robot.status === "online"
+      ? "Готов к работе"
+      : robot.status === "mission"
+        ? "На маршруте"
+        : robot.status === "rtl"
+          ? "Возвращается на базу"
+          : "Не в сети";
 
   return (
-    <div className="absolute right-4 top-4 bottom-4 w-[380px] z-20 bg-card/95 backdrop-blur-xl border border-border rounded-xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-right-4 fade-in duration-300">
+    <aside
+      className="robot-control-panel min-w-0 w-full flex flex-col overflow-hidden rounded-2xl border border-border bg-card"
+      aria-label={`Управление ${robot.name}`}
+    >
       <div
-        className="p-4 border-b border-border flex items-center justify-between"
-        style={{ background: `linear-gradient(135deg, color-mix(in oklch, ${robot.color} 18%, transparent), oklch(0.22 0.035 250))` }}
+        className="p-4 border-b border-border flex items-center justify-between gap-2"
+        style={{ background: "#edf0e9" }}
       >
-        <div className="flex items-center gap-2">
-          <div className="p-2 rounded-lg" style={{ background: `color-mix(in oklch, ${robot.color} 20%, transparent)` }}>
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="p-2.5 rounded-full bg-white/70">
             <Bot className="size-5" style={{ color: robot.color }} />
           </div>
-          <div>
-            <div className="font-semibold leading-tight">{robot.name}</div>
-            <div className="text-xs text-muted-foreground font-mono">{robot.model} · {robot.serial}</div>
+          <div className="min-w-0">
+            <h2 className="font-semibold leading-tight truncate">{robot.name}</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {robot.model} · {robot.serial}
+            </p>
           </div>
         </div>
-        <Button variant="ghost" size="icon" onClick={onClose}><X className="size-4" /></Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="shrink-0"
+          onClick={onClose}
+          aria-label="Закрыть управление роботом"
+        >
+          <X className="size-4" />
+        </Button>
       </div>
-
       <div className="p-4 space-y-4 overflow-y-auto flex-1">
-        <div className="flex items-center gap-2 flex-wrap">
-          <Badge className={
-            robot.status === "online" ? "bg-success/20 text-success border-success/30"
-            : robot.status === "mission" ? "bg-primary/20 text-primary border-primary/30"
-            : robot.status === "rtl" ? "bg-warning/20 text-warning border-warning/30"
-            : "bg-muted text-muted-foreground border-border"
-          }>
-            <span className={`size-1.5 rounded-full mr-1.5 ${
-              robot.status === "online" ? "bg-success pulse-dot" : robot.status === "mission" ? "bg-primary pulse-dot" : robot.status === "rtl" ? "bg-warning pulse-dot" : "bg-muted-foreground"
-            }`} />
-            {robot.status === "online" ? "В сети" : robot.status === "mission" ? "Выполняет миссию" : robot.status === "rtl" ? "Возврат RTL" : "Не в сети"}
+        <div className="flex items-center justify-between gap-2">
+          <Badge variant="outline" className="gap-1.5 font-normal">
+            <span
+              className="size-1.5 rounded-full"
+              style={{ background: robot.status === "offline" ? "#8b8e84" : robot.color }}
+            />
+            {statusLabel}
           </Badge>
-          <span className="text-[10px] text-muted-foreground ml-auto font-mono">UPD {fmtTs()}</span>
+          <span className="text-xs text-muted-foreground">Деморежим</span>
         </div>
-
-        {/* Battery with sparkline */}
-        <div className="rounded-lg bg-panel/50 border border-border p-3">
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          Команды изменяют локальную симуляцию. Подключение к реальному аппарату не настроено.
+        </p>
+        <div className="rounded-xl bg-panel/50 border border-border p-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><Battery className="size-3.5" />Батарея (30с)</div>
-            <div className="font-bold text-lg tabular-nums">{robot.battery.toFixed(1)}%</div>
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Battery className="size-3.5" />
+              Заряд батареи
+            </div>
+            <div className="font-semibold text-lg tabular-nums">{robot.battery.toFixed(1)}%</div>
           </div>
-          <div className="h-10 mt-1">
+          <div className="h-10 mt-1" role="img" aria-label="История заряда батареи в симуляции">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={sparkData} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
                 <defs>
-                  <linearGradient id="spark" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={robot.color} stopOpacity={0.6} />
+                  <linearGradient id={`spark-${robot.id}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={robot.color} stopOpacity={0.25} />
                     <stop offset="100%" stopColor={robot.color} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <Area dataKey="v" stroke={robot.color} strokeWidth={1.5} fill="url(#spark)" isAnimationActive={false} />
+                <Area
+                  dataKey="v"
+                  stroke={robot.color}
+                  strokeWidth={1.5}
+                  fill={`url(#spark-${robot.id})`}
+                  isAnimationActive={false}
+                />
               </AreaChart>
             </ResponsiveContainer>
           </div>
-          <Progress value={robot.battery} className="h-1 mt-1" />
+          <Progress value={robot.battery} className="h-1 mt-1" aria-label="Заряд батареи" />
         </div>
-
         <div className="grid grid-cols-3 gap-2">
           <Tile icon={Signal} label="Сигнал" value={`${robot.signal.toFixed(0)}%`} />
           <Tile icon={Gauge} label="Скорость" value={`${robot.speed.toFixed(1)} м/с`} />
-          <Tile icon={Navigation2} label="Курс" value={`${((robot.heading + 360) % 360).toFixed(0)}°`} />
+          <Tile
+            icon={Navigation2}
+            label="Курс"
+            value={`${((robot.heading + 360) % 360).toFixed(0)}°`}
+          />
         </div>
-
-        <div className="rounded-lg bg-panel/50 border border-border p-3 font-mono text-xs">
-          <div className="flex items-center justify-between text-muted-foreground uppercase tracking-wider text-[10px]">
-            <span className="flex items-center gap-1"><Target className="size-3" />GPS</span>
-            <span>WP {robot.waypointIdx + 1}/{robot.waypoints.length}</span>
+        <div className="rounded-xl bg-panel/50 border border-border p-3 text-xs">
+          <div className="flex items-center justify-between text-muted-foreground gap-2">
+            <span className="flex items-center gap-1">
+              <Target className="size-3" />
+              Условные координаты
+            </span>
+            <span>
+              {Math.min(robot.waypointIdx + 1, robot.waypoints.length)} / {robot.waypoints.length}
+            </span>
           </div>
-          <div className="mt-1 text-foreground tabular-nums">{lat}° N</div>
-          <div className="text-foreground tabular-nums">{lon}° E</div>
+          <p className="mt-1.5 text-foreground tabular-nums">
+            {gps.lat.toFixed(5)}° N, {gps.lon.toFixed(5)}° E
+          </p>
         </div>
-
         <div className="space-y-2">
-          <Label className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Количество проб за выезд</Label>
-          <Input type="number" value={robot.samplesPerTrip} onChange={(e) => onUpdate({ ...robot, samplesPerTrip: +e.target.value })} />
+          <Label htmlFor="samples-per-trip" className="text-xs text-muted-foreground">
+            Количество проб за выезд
+          </Label>
+          <Input
+            id="samples-per-trip"
+            type="number"
+            min={1}
+            max={100}
+            step={1}
+            value={sampleCount}
+            aria-invalid={!validCount}
+            aria-describedby={!validCount ? "sample-count-error" : undefined}
+            onChange={(e) => {
+              const value = e.target.value;
+              setSampleCount(value);
+              const count = Number(value);
+              if (value.trim() && Number.isInteger(count) && count >= 1 && count <= 100)
+                onUpdate({ ...robot, samplesPerTrip: count });
+            }}
+          />
+          {!validCount && (
+            <p id="sample-count-error" className="text-xs text-destructive" role="alert">
+              Введите целое число от 1 до 100.
+            </p>
+          )}
         </div>
-
-        {/* Route editor */}
-        <div className="rounded-lg border border-border bg-panel/40 p-3 space-y-3">
+        <div className="rounded-xl border border-border bg-panel/40 p-3 space-y-3">
           <div className="flex items-center justify-between gap-2">
-            <Label htmlFor="edit-mode" className="text-xs font-semibold flex items-center gap-1.5 cursor-pointer">
-              <Pencil className="size-3.5 text-primary" /> Режим редактирования маршрута
+            <Label
+              htmlFor="edit-mode"
+              className="text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+            >
+              <Pencil className="size-3.5 text-primary" />
+              Редактировать маршрут
             </Label>
             <Switch id="edit-mode" checked={editMode} onCheckedChange={setEditMode} />
           </div>
-
-          <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-            <span className="flex items-center gap-1"><MapPin className="size-3" />Точки маршрута</span>
-            <span className="font-mono">{draftWaypoints.length} WP</span>
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span className="flex items-center gap-1">
+              <MapPin className="size-3" />
+              Точки маршрута
+            </span>
+            <span>{draftWaypoints.length}</span>
           </div>
-
           {draftWaypoints.length === 0 ? (
-            <div className="text-xs text-muted-foreground italic py-2 px-1">
-              {editMode ? "Кликайте по карте, чтобы поставить точки 1, 2, 3…" : "Включите режим редактирования и расставьте точки на карте."}
-            </div>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {editMode
+                ? "Нажмите на воду на схеме, чтобы добавить точки."
+                : "Добавьте точки на схеме или выберите готовый маршрут."}
+            </p>
           ) : (
-            <div className="max-h-40 overflow-y-auto space-y-1 pr-1">
-              {draftWaypoints.map((w, i) => {
-                const g = toGps(w);
+            <ol className="max-h-36 overflow-y-auto space-y-1 pr-1">
+              {draftWaypoints.map((point, index) => {
+                const g = toGps(point);
                 return (
-                  <div key={i} className="flex items-center gap-2 bg-card/60 border border-border rounded-md px-2 py-1.5">
-                    <div className="size-5 rounded-full bg-cyan-accent text-background text-[10px] font-bold flex items-center justify-center flex-shrink-0">{i + 1}</div>
-                    <div className="font-mono text-[11px] tabular-nums flex-1 truncate">
+                  <li
+                    key={index}
+                    className="flex items-center gap-2 bg-card/60 border border-border rounded-lg px-2 py-1"
+                  >
+                    <span className="size-5 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold flex items-center justify-center shrink-0">
+                      {index + 1}
+                    </span>
+                    <span className="text-[11px] tabular-nums flex-1 truncate">
                       {g.lat}° N, {g.lon}° E
-                    </div>
-                    <Button size="icon" variant="ghost" className="size-6" onClick={() => removeWp(i)} aria-label="Удалить точку">
-                      <Trash2 className="size-3" />
+                    </span>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="size-8 shrink-0"
+                      onClick={() =>
+                        setDraftWaypoints(draftWaypoints.filter((_, i) => i !== index))
+                      }
+                      aria-label={`Удалить точку ${index + 1}`}
+                    >
+                      <Trash2 className="size-3.5" />
                     </Button>
-                  </div>
+                  </li>
                 );
               })}
-            </div>
+            </ol>
           )}
-
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" className="flex-1" onClick={clearDraft} disabled={draftWaypoints.length === 0}>
-              <Trash2 className="size-3.5" /> Очистить
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" className="flex-1" onClick={preset}>
+              <Route className="size-3.5" />
+              Готовый маршрут
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setDraftWaypoints([])}
+              disabled={draftWaypoints.length === 0}
+              aria-label="Очистить маршрут"
+            >
+              <Trash2 className="size-3.5" />
+              Очистить
             </Button>
           </div>
-
           <Button
             onClick={launchRoute}
-            disabled={launching || draftWaypoints.length < 2}
-            className="w-full h-12 font-extrabold uppercase tracking-wide bg-primary text-primary-foreground hover:bg-primary/90 glow-primary"
+            disabled={!!startReason}
+            aria-describedby={startReason ? "route-start-reason" : undefined}
+            className="w-full h-11"
           >
-            {launching ? (<><Loader2 className="size-5 animate-spin" /> Синхронизация маршрута с USV...</>) : (<><Rocket className="size-5" /> Запустить маршрут</>)}
+            <Play className="size-4" />
+            Запустить демомаршрут
           </Button>
+          {startReason && (
+            <p id="route-start-reason" className="text-xs leading-relaxed text-muted-foreground">
+              {startReason}
+            </p>
+          )}
         </div>
-
-        <div className="pt-1 space-y-2">
-          <AlertDialog open={estopOpen} onOpenChange={setEstopOpen}>
+        <div className="space-y-2">
+          <AlertDialog open={rtlOpen} onOpenChange={setRtlOpen}>
             <AlertDialogTrigger asChild>
-              <Button disabled={robot.status === "offline"} className="w-full h-16 text-base font-extrabold bg-destructive hover:bg-destructive/90 text-destructive-foreground glow-danger uppercase tracking-wide">
-                <OctagonAlert className="size-6" /> Аварийная остановка
+              <Button
+                disabled={unavailable || robot.status === "rtl"}
+                variant="outline"
+                className="w-full h-11"
+              >
+                <Home className="size-4" />
+                Вернуть на базу
               </Button>
             </AlertDialogTrigger>
-            <AlertDialogContent className="bg-card border-destructive/50">
+            <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle className="flex items-center gap-2 text-destructive">
-                  <OctagonAlert className="size-5" /> Подтвердите аварийную остановку
-                </AlertDialogTitle>
+                <AlertDialogTitle>Вернуть {robot.name} на базу?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Аппарат <span className="font-mono font-semibold text-foreground">{robot.name}</span> ({robot.serial}) будет немедленно
-                  переведён в состояние <span className="text-destructive font-semibold">OFFLINE</span>: двигатели заглушены,
-                  телеметрия прерывается, текущая миссия отменяется. Событие будет записано в журнал робота.
+                  Текущий маршрут в демосимуляции будет прерван. Аппарат на схеме направится к базе.
+                  Действие сохранится в локальном журнале.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Отмена</AlertDialogCancel>
-                <AlertDialogAction onClick={emergency} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                  Да, остановить
-                </AlertDialogAction>
+                <AlertDialogAction onClick={rtl}>Вернуть на базу</AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
-
-          <AlertDialog open={rtlOpen} onOpenChange={setRtlOpen}>
+          <AlertDialog open={estopOpen} onOpenChange={setEstopOpen}>
             <AlertDialogTrigger asChild>
-              <Button disabled={robot.status === "offline"} className="w-full h-12 font-bold bg-warning hover:bg-warning/90 text-warning-foreground uppercase tracking-wide">
-                <Home className="size-5" /> Вернуть на базу (RTL)
+              <Button
+                disabled={robot.status === "offline"}
+                variant="outline"
+                className="w-full h-11 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              >
+                <OctagonAlert className="size-4" />
+                Остановить аппарат
               </Button>
             </AlertDialogTrigger>
-            <AlertDialogContent className="bg-card border-warning/50">
+            <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle className="flex items-center gap-2 text-warning">
-                  <Home className="size-5" /> Подтвердите возврат на базу
-                </AlertDialogTitle>
+                <AlertDialogTitle>Остановить {robot.name}?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Аппарат <span className="font-mono font-semibold text-foreground">{robot.name}</span> прервёт текущую миссию и
-                  направится к точке базы по кратчайшему безопасному маршруту. Событие будет записано в журнал робота.
+                  Движение демонстрационного аппарата остановится. Его статус изменится на «Не в
+                  сети». Команда действует только в локальной симуляции и сохранится в журнале.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Отмена</AlertDialogCancel>
-                <AlertDialogAction onClick={rtl} className="bg-warning text-warning-foreground hover:bg-warning/90">
-                  Подтвердить RTL
+                <AlertDialogAction
+                  onClick={emergency}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Остановить аппарат
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
         </div>
       </div>
-    </div>
+    </aside>
   );
 }
 
-function Tile({ icon: Icon, label, value }: { icon: React.ComponentType<{ className?: string }>; label: string; value: string }) {
+function Tile({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: string;
+}) {
   return (
-    <div className="rounded-lg bg-panel/50 border border-border p-2.5">
-      <div className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground"><Icon className="size-3" />{label}</div>
-      <div className="mt-1 font-bold text-sm tabular-nums">{value}</div>
+    <div className="min-w-0 rounded-xl bg-panel/50 border border-border p-2.5">
+      <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+        <Icon className="size-3 shrink-0" />
+        {label}
+      </div>
+      <div className="mt-1 font-semibold text-sm tabular-nums">{value}</div>
     </div>
   );
 }

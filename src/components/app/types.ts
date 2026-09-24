@@ -27,6 +27,9 @@ export type Sample = {
   oxygen: number;
   turbidity: number;
   temperature: number;
+  tds: number;
+  conductivity: number;
+  microplastics: number;
   depth: number; // meters
   pollution: number; // 0..100 index
 };
@@ -39,7 +42,11 @@ export type EventType =
   | "rtl"
   | "estop"
   | "mission_start"
-  | "mission_done";
+  | "mission_done"
+  | "mission_cancel"
+  | "manual_start"
+  | "sample"
+  | "maintenance";
 
 export type Thresholds = {
   ph: { min: number; max: number; warnMin: number; warnMax: number };
