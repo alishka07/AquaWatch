@@ -89,7 +89,7 @@ export function AppSidebar(props: Props) {
         <button
           className="app-brand"
           onClick={() => navigate("overview")}
-          aria-label="SuBulaq AquaWatch — обзор"
+          aria-label="SuBulaq — обзор"
         >
           {collapsed ? (
             <Waves className="size-5" />
@@ -97,7 +97,7 @@ export function AppSidebar(props: Props) {
             <>
               <span className="app-wordmark">SUBULAQ</span>
               <span className="app-brand-caption">
-                AquaWatch <span>Платформа оператора</span>
+                Мониторинг воды <span>Платформа оператора</span>
               </span>
             </>
           )}

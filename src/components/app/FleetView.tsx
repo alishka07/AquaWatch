@@ -171,7 +171,7 @@ export function EventLog({
             variant="outline"
             onClick={() =>
               downloadBlob(
-                "aquawatch-demo-events.json",
+                "subulaq-demo-events.json",
                 "application/json",
                 JSON.stringify({ mode: "demo", events: filtered }, null, 2),
               )

@@ -34,7 +34,7 @@ export const Route = createFileRoute("/")({
   component: App,
   head: () => ({
     meta: [
-      { title: "AquaWatch · SuBulaq — наблюдение за водой" },
+      { title: "SuBulaq — наблюдение за водой" },
       {
         name: "description",
         content: "Карта, флот USV, миссии, измерения и отчёты в рабочем пространстве SuBulaq.",
@@ -194,7 +194,7 @@ function App() {
             <div className="flex items-center gap-3">
               <SidebarTrigger aria-label="Открыть навигацию" />
               <span className="text-sm hidden sm:inline">
-                AquaWatch <span className="text-muted-foreground mx-2">/</span> {pages[view].title}
+                SuBulaq <span className="text-muted-foreground mx-2">/</span> {pages[view].title}
               </span>
             </div>
             <div className="flex items-center gap-3">

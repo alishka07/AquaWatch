@@ -128,8 +128,8 @@ export function ManualView({
     onPick(id);
   };
   const snapshot = () => {
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700"><rect width="1200" height="700" fill="#e2ecee"/><path d="M0 300 Q200 260 400 300 T800 300 T1200 300" fill="none" stroke="#335e57" stroke-width="4"/><text x="70" y="90" font-family="sans-serif" font-size="30" fill="#242a23">AquaWatch / Demo snapshot</text><text x="70" y="145" font-family="sans-serif" font-size="20">${new Date().toISOString()} / Camera: ${camera} / Heading: ${r.heading.toFixed(0)}</text><text x="70" y="620" font-family="sans-serif" font-size="22">Synthetic scene. No live camera connected.</text></svg>`;
-    downloadBlob(`aquawatch-demo-${Date.now()}.svg`, "image/svg+xml", svg);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700"><rect width="1200" height="700" fill="#e2ecee"/><path d="M0 300 Q200 260 400 300 T800 300 T1200 300" fill="none" stroke="#335e57" stroke-width="4"/><text x="70" y="90" font-family="sans-serif" font-size="30" fill="#242a23">SuBulaq / Demo snapshot</text><text x="70" y="145" font-family="sans-serif" font-size="20">${new Date().toISOString()} / Camera: ${camera} / Heading: ${r.heading.toFixed(0)}</text><text x="70" y="620" font-family="sans-serif" font-size="22">Synthetic scene. No live camera connected.</text></svg>`;
+    downloadBlob(`subulaq-demo-${Date.now()}.svg`, "image/svg+xml", svg);
     toast.success("Демонстрационный снимок сохранён");
   };
   return (

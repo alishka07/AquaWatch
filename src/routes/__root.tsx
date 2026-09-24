@@ -73,23 +73,23 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "AquaWatch · SuBulaq" },
+      { title: "SuBulaq — наблюдение за водой" },
       {
         name: "description",
-        content: "AquaWatch System is a web application for monitoring water quality using USVs.",
+        content: "SuBulaq — платформа мониторинга качества воды: карта, флот, миссии и отчёты.",
       },
       { name: "author", content: "Bulaq Robotics" },
-      { property: "og:title", content: "AquaWatch · SuBulaq" },
+      { property: "og:title", content: "SuBulaq — наблюдение за водой" },
       {
         property: "og:description",
-        content: "AquaWatch System is a web application for monitoring water quality using USVs.",
+        content: "SuBulaq — платформа мониторинга качества воды: карта, флот, миссии и отчёты.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
-      { name: "twitter:title", content: "AquaWatch · SuBulaq" },
+      { name: "twitter:title", content: "SuBulaq — наблюдение за водой" },
       {
         name: "twitter:description",
-        content: "AquaWatch System is a web application for monitoring water quality using USVs.",
+        content: "SuBulaq — платформа мониторинга качества воды: карта, флот, миссии и отчёты.",
       },
     ],
     links: [

@@ -457,8 +457,8 @@ function ProfileForm({ initial, onSave }: { initial: Profile; onSave: (p: Profil
           <h2>Ваше рабочее пространство</h2>
         </div>
         <p className="text-sm text-muted-foreground leading-7 mt-4">
-          AquaWatch объединяет карту, маршруты, измерения и историю обслуживания в визуальном стиле
-          SuBulaq. Профиль, флот и журнал сохраняются в этом браузере.
+          SuBulaq объединяет карту, маршруты, измерения и историю обслуживания в одном пространстве.
+          Профиль, флот и журнал сохраняются в этом браузере.
         </p>
         <div className="mt-6 border-t pt-5 text-sm space-y-3">
           <p>

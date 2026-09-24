@@ -159,7 +159,7 @@ export function downloadCSV(
   filters: ReportFilters,
 ) {
   const csv = "﻿" + buildCSV(samples, robots, thresholds); // BOM for Excel Cyrillic
-  const fn = `usv_report_${filters.range.from}_${filters.range.to}.csv`;
+  const fn = `subulaq_report_${filters.range.from}_${filters.range.to}.csv`;
   downloadBlob(fn, "text/csv;charset=utf-8", csv);
   return fn;
 }
@@ -216,7 +216,7 @@ export function buildHtmlReport(
 <html lang="ru">
 <head>
 <meta charset="utf-8" />
-<title>AquaWatch · демо-отчёт · ${htmlEscape(filters.range.from)} — ${htmlEscape(filters.range.to)}</title>
+<title>SuBulaq · демо-отчёт · ${htmlEscape(filters.range.from)} — ${htmlEscape(filters.range.to)}</title>
 <style>
   @page { size: A4 landscape; margin: 14mm; }
   body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #263a35; font-size: 11px; }
@@ -245,7 +245,7 @@ export function buildHtmlReport(
 </head>
 <body>
   <button class="print-btn" onclick="window.print()">Печать / Сохранить PDF</button>
-  <h1>AquaWatch · демонстрационный отчёт мониторинга воды</h1>
+  <h1>SuBulaq · демонстрационный отчёт мониторинга воды</h1>
   <p class="meta">Данные симуляции. Координаты рассчитаны по демонстрационной карте. Скрининг микрочастиц не является лабораторным анализом. Оценка качества рассчитана по настройкам приложения.</p>
   <div class="meta">
     Период: <b>${htmlEscape(filters.range.from)}</b> — <b>${htmlEscape(filters.range.to)}</b> ·
@@ -286,7 +286,7 @@ export function buildHtmlReport(
   </table>
 
   <div class="footer">
-    AquaWatch · демонстрационный отчёт, сформирован автоматически.
+    SuBulaq · демонстрационный отчёт, сформирован автоматически.
     Настроенные пороги: pH ${thresholds.ph.warnMin}–${thresholds.ph.warnMax} (диапазон ${thresholds.ph.min}–${thresholds.ph.max}),
     O₂ ≥ ${thresholds.oxygen.warn} мг/л (критично < ${thresholds.oxygen.critical}),
     мутность ≤ ${thresholds.turbidity.warn} NTU (критично > ${thresholds.turbidity.critical}),
@@ -307,7 +307,7 @@ export function downloadPDF(
   const win = window.open("", "_blank");
   if (!win) {
     // Pop-up blocked — fall back to HTML download
-    const fn = `usv_report_${filters.range.from}_${filters.range.to}.html`;
+    const fn = `subulaq_report_${filters.range.from}_${filters.range.to}.html`;
     downloadBlob(fn, "text/html;charset=utf-8", html);
     return { mode: "fallback-html" as const, filename: fn };
   }
@@ -325,6 +325,6 @@ export function downloadPDF(
   }, 350);
   return {
     mode: "print" as const,
-    filename: `usv_report_${filters.range.from}_${filters.range.to}.pdf`,
+    filename: `subulaq_report_${filters.range.from}_${filters.range.to}.pdf`,
   };
 }
