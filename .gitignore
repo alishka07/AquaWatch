@@ -36,3 +36,6 @@ dev*.log
 *.njsproj
 *.sln
 *.sw?
+
+# Local Netlify folder
+.netlify
